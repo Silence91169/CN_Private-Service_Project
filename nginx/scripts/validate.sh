@@ -15,7 +15,7 @@ if command -v nginx >/dev/null 2>&1; then
     trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
     cp "$snippet" "$temp_dir/proxy-common.conf"
     # nginx resolves relative include files from its prefix.
-    nginx -t -p "$temp_dir/" -c "$config_file"
+    nginx -t -p "$temp_dir/" -c "$(cd "$(dirname "$config_file")" && pwd)/$(basename "$config_file")"
 else
     printf 'SKIP: nginx is not installed; performed static checks only\n'
 fi
