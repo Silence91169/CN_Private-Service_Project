@@ -1,12 +1,24 @@
 # Evidence and screenshot checklist
 
-Every screenshot must show the machine role, command, complete relevant output, and visible timestamp where practical. Crop personal notifications and unrelated traffic; never expose private keys, passwords, tokens, full browsing traffic, or certificate key material.
+Every artifact should show the machine role, command, relevant output and timestamp. Crop notifications and unrelated traffic. Never expose private keys, tokens, passwords, full personal paths, unrelated packets, or certificate key material.
 
-- A: both direct DNS answers, client resolver list, primary stop, successful secondary resolution, primary recovery.
-- B: initial answer/TTL, authoritative changed record, cached old answer with remaining TTL, updated answer after expiry, cache-flush command and recovery.
-- D: both backends before failure, Backend A stop, only B during failure, Backend A restart, both after recovery.
-- C: PF syntax check, anchor rules, authorized edge success, unauthorized direct failure, anchor rollback, recovered baseline.
-- E: standby direct TLS/HTTP validation, DNS record cutover, TTL transition, service via standby, restored primary record.
-- F: one failure and successful recovery for DNS, TCP, TLS, and HTTP/application.
+## Already committed
 
-Start screen recording immediately before the controlled state change, narrate the expected result, show the verification command, perform recovery, show the recovered result, then stop. Do not record long installation or waiting periods.
+- `evidence/final-verification/live-health-check.txt`: both DNS answers, primary HTTP, standby HTTP and primary HTTPS.
+
+## High-priority missing evidence
+
+- Round robin: one uncached sample set containing both `X-Backend: A` and `B`.
+- Backend failure/recovery: both-up, A stopped/B serving, A restarted/both serving.
+- DNS redundancy: primary unavailable, client continues via secondary, primary restored.
+- TTL/cutover: old record/TTL, authoritative new record, client convergence, primary rollback.
+- Cache: timestamped `MISS`, immediate `HIT`, and optional `EXPIRED`.
+- TLS: certificate subject/SAN, issuer and successful verification code without bypass.
+
+## Not yet claimed as passed
+
+- PF: full syntax check, anchor contents, edge allowed, client blocked, rollback.
+- Troubleshooting: one isolated failure and recovery at each DNS/TCP/TLS/HTTP stage.
+- Wireshark: DNS query/answer, TCP three-way handshake, TLS ClientHello/ServerHello and encrypted application data.
+
+Start screen recording immediately before a controlled state change; narrate expected behavior, show the command, perform recovery, prove recovery, and stop. For the normal viva, use non-destructive checks and existing evidence instead of stopping working services.

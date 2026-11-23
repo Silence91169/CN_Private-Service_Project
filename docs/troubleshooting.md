@@ -1,12 +1,67 @@
-# DNS → TCP → TLS → HTTP/Application
+# Troubleshooting: DNS → TCP → TLS → HTTP/application
 
-| Stage | Command | Success | Common failure interpretation | Recovery focus |
-| --- | --- | --- | --- | --- |
-| DNS | `dig @RESOLVER app.team1.test A` | Current edge IP and expected TTL | Resolver down, wrong record/listener, UDP/TCP 53 blocked | Validate config, service, direct reachability, both record files |
-| TCP | `nc -G 3 -zv EDGE 8443` | Connection succeeds | Route, listener, wrong IP/port, PF | Check IP, `lsof -nP -iTCP:8443`, PF and nginx state |
-| TLS | `openssl s_client -connect EDGE:8443 -servername app.team1.test -verify_hostname app.team1.test` | Verify code 0 | Wrong SAN, chain, trust, SNI, expired/not-yet-valid cert, clock | Inspect certificate, CA trust and local time; never use `-k` as proof |
-| HTTP | `curl --resolve app.team1.test:8443:EDGE https://app.team1.test:8443/healthz` | 200 and `X-Backend` | nginx location/upstream/backend failure | Inspect nginx error log, direct backend health, upstream IP/port |
+Always stop at the first failed dependency. Do not change multiple components simultaneously.
 
-`scripts/verify/diagnose.sh` stops at the first failed layer. This prevents an HTTP symptom from being misdiagnosed before DNS or TCP has been established.
+| Stage | Repository command | Success | Failure interpretation |
+| --- | --- | --- | --- |
+| DNS | `scripts/verify/check-dns.sh RESOLVER EXPECTED_EDGE` | Both private names return expected edge | resolver/listener down, wrong record, port 53 blocked |
+| TCP | `scripts/verify/check-tcp.sh EDGE 8443` | connection succeeds | wrong IP/port, route, listener or PF problem |
+| TLS | `scripts/verify/check-tls.sh EDGE 8443 [PUBLIC_CA]` | hostname and chain verify with code 0 | wrong SAN/chain/trust/SNI, expired certificate, incorrect clock |
+| HTTP | `scripts/verify/check-http.sh EDGE 8443 [PUBLIC_CA]` | `200`, valid `X-Backend`, `no-store` | nginx route, upstream, backend or application failure |
 
-For nginx upstream failure, test each backend directly from the edge, inspect the error log, confirm PF authorizes that edge, and verify `max_fails`, `fail_timeout`, and retry policy. Restore the failed backend and allow the passive failure window to expire before expecting it in samples.
+The ordered wrapper is:
+
+```bash
+scripts/verify/diagnose.sh config/inventory.env
+```
+
+## DNS checks
+
+```bash
+dig @10.7.30.125 app.team1.test A
+dig @10.7.6.134 app.team1.test A
+sudo lsof -nP -iUDP:53 -iTCP:53
+scutil --dns
+```
+
+Confirm both installed hosts files contain the same active edge. Restore primary records on both resolvers before concluding recovery.
+
+## TCP checks
+
+```bash
+nc -G 3 -zv 10.7.2.149 8443
+nc -G 3 -zv 10.7.6.134 3001
+nc -G 3 -zv 10.7.18.193 3002
+```
+
+On the destination, inspect listeners with `lsof -nP -iTCP -sTCP:LISTEN`. Do not enable/disable PF merely to test a hypothesis.
+
+## TLS checks
+
+```bash
+openssl s_client \
+  -connect 10.7.2.149:8443 \
+  -servername app.team1.test \
+  -verify_hostname app.team1.test
+```
+
+Check SANs, issuer, validity dates, trust and system time. `curl -k` bypasses identity verification and is never acceptable as successful TLS evidence.
+
+## HTTP and upstream checks
+
+```bash
+curl -i http://10.7.6.134:3001/healthz
+curl -i http://10.7.18.193:3002/healthz
+scripts/verify/check-http.sh 10.7.2.149 8443
+```
+
+If direct backend checks pass but edge HTTP fails, inspect nginx configuration and error logs. If only one backend fails, confirm its process, IP/port, PF authorization and the nginx passive-failure window. After recovery, wait longer than `fail_timeout` before expecting it in samples.
+
+## Safe recovery order
+
+1. Restore correct backend process.
+2. Validate nginx config before reload.
+3. Restore primary DNS records on both resolvers.
+4. Wait one TTL or flush only the designated client cache with approval.
+5. Remove only the project PF anchor if it was part of the test.
+6. Repeat the complete diagnostic sequence and preserve both failing and recovered outputs.

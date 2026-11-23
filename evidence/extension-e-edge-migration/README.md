@@ -1,3 +1,3 @@
-# Extension E evidence
+# Extension E — Edge migration evidence
 
-Pending live testing. Record direct standby validation, DNS cutover, TTL convergence, standby service, and rollback.
+Direct standby HTTP is verified in `../final-verification/live-health-check.txt`. Manual DNS cutover and primary-edge outage/recovery were reported. A dedicated artifact must still show authoritative cutover, TTL convergence, service through standby, and restoration of the primary record.

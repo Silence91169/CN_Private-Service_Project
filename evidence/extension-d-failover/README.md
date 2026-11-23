@@ -1,3 +1,3 @@
-# Extension D evidence
+# Extension D — Backend failover evidence
 
-Pending live testing. Record both-up, A-down/B-serving, and A-recovered samples from uncached `/healthz`.
+Backend failure and recovery were reported during team testing. The repository still needs one dedicated transcript showing both-up, A-down/B-serving, and A-recovered samples from uncached `/healthz`.

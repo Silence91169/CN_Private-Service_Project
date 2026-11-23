@@ -1,3 +1,3 @@
-# Extension C evidence
+# Extension C — Firewall evidence
 
-Pending live testing. Record authorized edge access, unauthorized block, anchor inspection, and rollback.
+Scoped PF templates, validation, dry-run application, and rollback are implemented. PF isolation is not marked passed because no committed artifact proves authorized edge access, unauthorized client blocking, anchor inspection, and rollback.
