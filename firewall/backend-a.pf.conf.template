@@ -1,0 +1,4 @@
+# Load as a dedicated PF anchor on Backend A only.
+table <team1_edges> const { __PRIMARY_EDGE_IP__, __STANDBY_EDGE_IP__ }
+pass in quick on __BACKEND_A_INTERFACE__ proto tcp from <team1_edges> to (__BACKEND_A_INTERFACE__) port __BACKEND_A_PORT__ keep state
+block drop in log quick on __BACKEND_A_INTERFACE__ proto tcp from any to (__BACKEND_A_INTERFACE__) port __BACKEND_A_PORT__

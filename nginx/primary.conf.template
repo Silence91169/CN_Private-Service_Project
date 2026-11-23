@@ -1,0 +1,49 @@
+worker_processes auto;
+error_log __HOMEBREW_PREFIX__/var/log/nginx/team1-primary-error.log notice;
+pid __HOMEBREW_PREFIX__/var/run/nginx-team1-primary.pid;
+
+events { worker_connections 256; }
+
+http {
+    access_log __HOMEBREW_PREFIX__/var/log/nginx/team1-primary-access.log combined;
+    proxy_cache_path /tmp/team1-nginx-primary-cache levels=1:2 keys_zone=team1_cache:10m inactive=5m;
+
+    upstream cn_backends {
+        server __BACKEND_A_IP__:__BACKEND_A_PORT__ max_fails=1 fail_timeout=10s;
+        server __BACKEND_B_IP__:__BACKEND_B_PORT__ max_fails=1 fail_timeout=10s;
+        keepalive 8;
+    }
+
+    server {
+        listen __PRIMARY_EDGE_HTTP_PORT__;
+        server_name app.team1.test api.team1.test;
+        location / { proxy_pass http://cn_backends; include __HOMEBREW_PREFIX__/etc/nginx/proxy-common.conf; }
+    }
+
+    server {
+        listen __PRIMARY_EDGE_HTTPS_PORT__ ssl;
+        server_name app.team1.test api.team1.test;
+        ssl_certificate __TLS_CERT_PATH__;
+        ssl_certificate_key __TLS_KEY_PATH__;
+        ssl_protocols TLSv1.2 TLSv1.3;
+
+        location / { proxy_pass http://cn_backends; include __HOMEBREW_PREFIX__/etc/nginx/proxy-common.conf; }
+        location = /api/status {
+            proxy_pass http://cn_backends;
+            include __HOMEBREW_PREFIX__/etc/nginx/proxy-common.conf;
+            proxy_cache team1_cache;
+            proxy_cache_valid 200 10s;
+            proxy_ignore_headers Cache-Control Expires Set-Cookie;
+            proxy_hide_header Cache-Control;
+            add_header Cache-Control "public, max-age=10" always;
+            add_header X-Cache-Status $upstream_cache_status always;
+        }
+        location = /healthz {
+            proxy_pass http://cn_backends;
+            include __HOMEBREW_PREFIX__/etc/nginx/proxy-common.conf;
+            proxy_no_cache 1;
+            proxy_cache_bypass 1;
+            add_header Cache-Control "no-store" always;
+        }
+    }
+}

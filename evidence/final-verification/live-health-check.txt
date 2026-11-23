@@ -1,0 +1,32 @@
+===== DATE =====
+Tue Nov 24 02:38:28 IST 2026
+===== PRIMARY DNS =====
+10.7.2.149
+===== SECONDARY DNS =====
+10.7.2.149
+===== PRIMARY HTTP =====
+HTTP/1.1 200 OK
+Server: nginx/1.31.8
+Date: Mon, 23 Nov 2026 21:08:28 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 29
+Connection: keep-alive
+Cache-Control: no-store
+X-Backend: A
+
+{"backend":"A","status":"ok"}
+===== STANDBY HTTP =====
+HTTP/1.1 200 OK
+Server: nginx/1.31.9
+Date: Mon, 23 Nov 2026 21:08:28 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 29
+Connection: keep-alive
+Cache-Control: no-store
+X-Backend: B
+
+{"backend":"B","status":"ok"}
+===== PRIMARY HTTPS =====
+HTTPS 200
+===== GIT COMMIT =====
+58cd58a

@@ -1,199 +1,288 @@
-# CN Private Service Project — Phase 1: Build & Observe
+# Private Network Service Platform — Phase 1 + Phase 2
 
-## 1. Overview
+A four-Mac private-LAN service demonstrating private DNS, reverse proxying, HTTPS termination, response caching, backend load balancing and failover, a secondary resolver, a standby edge, scoped firewall design, and layered troubleshooting.
 
-This Phase 1 project builds and observes a private web service across four physical macOS laptops connected to the same LAN. The system combines private DNS, two backend servers, an nginx edge server, round-robin load balancing, TLS termination through a locally trusted certificate authority, response caching, packet inspection, and controlled failure testing.
+> **Evaluation status — 24 November 2026:** core DNS and edge health have genuine committed evidence. Additional behaviors were reported during team testing but still need dedicated committed evidence. macOS PF isolation, the full troubleshooting challenge, and Wireshark captures are not claimed as passed. LAN addresses below are a verified lab-session snapshot, not permanent configuration; reusable files use `config/inventory.env` and templates.
 
-The project is intended to demonstrate both how the service works and what its DNS, TCP, TLS, caching, and failure behavior looks like on the network. Evidence collected during the completed experiments belongs under `evidence/`; this repository does not claim results that have not yet been captured and verified.
+## Objectives
 
-## 2. Team Members
+- Resolve `app.team1.test` and `api.team1.test` through private primary and secondary DNS resolvers.
+- Terminate TLS at nginx and forward requests to two Node.js backends.
+- demonstrate round-robin distribution and passive backend failover using an uncached health endpoint;
+- demonstrate nginx `MISS`/`HIT` caching on HTTPS `/api/status`;
+- support a controlled, manual DNS switchover to a standby nginx edge;
+- design backend isolation with scoped macOS PF anchors and safe rollback;
+- diagnose failures in the order DNS → TCP → TLS → HTTP/application.
 
-| Team member | Enrollment number | Responsibility |
+## Architecture
+
+```mermaid
+flowchart LR
+    C[Shitanshu / integration client]
+    D1[Primary DNS\nShitanshu\n10.7.30.125:53]
+    D2[Secondary DNS\nShivam\n10.7.6.134:53]
+    E1[Primary nginx\nKeshav\n10.7.2.149\nHTTP 8080 / HTTPS 8443]
+    E2[Standby nginx\nYash\n10.7.18.193\nHTTP 8080 / HTTPS 8443]
+    A[Backend A\nShivam\n10.7.6.134:3001]
+    B[Backend B\nYash\n10.7.18.193:3002]
+
+    C -->|DNS query| D1
+    C -.->|resolver fallback| D2
+    D1 -->|normally returns 10.7.2.149| E1
+    D2 -->|normally returns 10.7.2.149| E1
+    C -->|HTTP / HTTPS| E1
+    C -.->|manual DNS switchover| E2
+    E1 -->|round robin / passive retry| A
+    E1 -->|round robin / passive retry| B
+    E2 --> A
+    E2 --> B
+```
+
+The standby edge is not selected automatically. During a controlled edge migration, both DNS record files are manually changed from the primary edge IP to the standby edge IP. The configured TTL is 30 seconds, but client and resolver cache behavior still affects convergence.
+
+## Team and verified lab inventory
+
+| Member | Verified 24 Nov 2026 IP | Responsibilities |
 | --- | --- | --- |
-| Shitanshu | `<ENROLLMENT_NUMBER>` | Primary DNS |
-| Keshav | `<ENROLLMENT_NUMBER>` | nginx edge server, load balancing, TLS termination, and caching |
-| Shivam | `<ENROLLMENT_NUMBER>` | Backend A |
-| Yash | `<ENROLLMENT_NUMBER>` | Backend B |
+| Shitanshu | `10.7.30.125` | Primary DNS, integration client, verification |
+| Keshav | `10.7.2.149` | Primary nginx, TLS, reverse proxy, load balancing, caching |
+| Shivam | `10.7.6.134` | Backend A on `3001`, secondary DNS |
+| Yash | `10.7.18.193` | Backend B on `3002`, standby nginx |
 
-## 3. Architecture
+Reconfirm every address at the start of a new lab session. Never copy these values into reusable templates.
 
-All four macOS laptops are connected to the same private LAN. Clients resolve the private service names through Shitanshu's DNS server. Requests then reach the nginx edge server on Keshav's laptop, which terminates TLS when HTTPS is used and proxies traffic to Backend A or Backend B in round-robin order.
+## Technologies
 
-```text
-LAN client
-    |
-    | DNS query: app.team1.test / api.team1.test
-    v
-Primary DNS — Shitanshu (10.7.22.96, dnsmasq)
+Node.js built-in HTTP server, nginx, dnsmasq, locally issued TLS certificates, macOS PF, POSIX shell, curl, dig, OpenSSL, netcat, Git/GitHub, and Wireshark where captures are explicitly collected.
 
-LAN client
-    |
-    | HTTP :8080 or HTTPS :8443
-    v
-nginx edge — Keshav (10.7.15.28)
-    |                         |
-    | round-robin             | round-robin
-    v                         v
-Backend A                  Backend B
-Shivam                     Yash
-10.7.9.199:3001            10.7.1.235:3002
-```
-
-Private service domains:
-
-- `app.team1.test`
-- `api.team1.test`
-
-Edge ports:
-
-- HTTP: `8080`
-- HTTPS: `8443`
-
-## 4. Machine/IP/Role Table
-
-| Team member | LAN IP | Service/port | Role |
-| --- | --- | --- | --- |
-| Shitanshu | `10.7.22.96` | DNS (`dnsmasq`) | Primary DNS for the private domains |
-| Keshav | `10.7.15.28` | HTTP `8080`, HTTPS `8443` | nginx reverse proxy, round-robin load balancer, TLS termination, and cache |
-| Shivam | `10.7.9.199` | Backend A `3001` | First application backend |
-| Yash | `10.7.1.235` | Backend B `3002` | Second application backend |
-
-## 5. Repository Structure
+## Repository structure
 
 ```text
-CN_Private-Service_Project/
-├── backend-a/             # Backend A source and non-secret configuration
-├── backend-b/             # Backend B source and non-secret configuration
-├── nginx/                 # nginx configuration
-├── dns/                   # dnsmasq configuration and DNS notes
-├── certificates/          # Public certificates only; never private keys
-├── evidence/
-│   ├── dns/               # DNS packet-capture evidence
-│   ├── tcp/               # TCP handshake evidence
-│   ├── tls/               # TLS handshake/encrypted-data evidence
-│   ├── caching/           # Cache MISS/HIT/EXPIRED evidence
-│   └── failures/          # Controlled failure-test evidence
-├── docs/                  # Supporting documentation
-├── .gitignore
-└── README.md
+backend-a/, backend-b/    Node.js backends
+config/                   ignored local inventory template
+dns/                      primary/secondary resolver and record templates
+nginx/                    primary/standby edge templates and shared proxy policy
+firewall/                 scoped PF templates, validation, apply and rollback
+scripts/backend/          backend launcher
+scripts/verify/           DNS/TCP/TLS/HTTP/failover checks
+scripts/tests/            local backend and renderer tests
+docs/                     architecture, deployment, demo, report and viva guides
+evidence/                 evidence register and sanitized committed results
+generated/                rendered machine-specific files; ignored by Git
 ```
 
-Empty directories are not tracked by Git until they contain a file. Evidence and configuration artifacts should be added only after they have been genuinely produced and reviewed for sensitive information.
+## Prerequisites
 
-## 6. Private DNS
+- Four authorized Macs on the same private LAN.
+- Git and Homebrew.
+- Node.js on both backend Macs.
+- nginx on both edge Macs.
+- dnsmasq on both DNS Macs.
+- `curl`, `dig`, `openssl`, `nc`, and `rg` for validation.
+- A locally issued certificate covering `app.team1.test` and `api.team1.test`.
+- The public CA trusted on the demonstration client.
+- TLS private keys stored outside this repository.
 
-The primary DNS service runs with `dnsmasq` on Shitanshu's laptop at `10.7.22.96`. It is responsible for resolving `app.team1.test` and `api.team1.test` inside the LAN to the nginx edge server at `10.7.15.28`.
+## Clone and prepare
 
-Before testing the web service, confirm that each participating client is using the intended DNS server and that both names resolve to the edge IP. DNS changes must be performed manually on the relevant machines; this repository does not alter system DNS settings.
-
-## 7. Backend A and Backend B
-
-Backend A runs on Shivam's laptop at `10.7.9.199:3001`. Backend B runs on Yash's laptop at `10.7.1.235:3002`.
-
-Both backends use Node.js's built-in `http` module and require no npm packages. Backend A listens on `0.0.0.0:3001`, and Backend B listens on `0.0.0.0:3002`. Each serves `/` and `/api/status`, returns JSON, identifies itself through its response body and `X-Backend` header, and returns JSON with HTTP status `404` for other paths. The backends also emit `Cache-Control: max-age=60`; nginx applies its own cache policy to the HTTPS `/api/status` route described below.
-
-## 8. nginx Reverse Proxy and Load Balancing
-
-nginx runs on Keshav's laptop at `10.7.15.28`. It accepts `app.team1.test` and `api.team1.test` traffic on HTTP port `8080` and HTTPS port `8443`, forwards requests to the `cn_backends` upstream, and distributes requests between `10.7.9.199:3001` and `10.7.1.235:3002` using nginx's default round-robin behavior. Each upstream is configured with `max_fails=1` and `fail_timeout=10s`. nginx forwards the original host, client address, forwarding chain, and request scheme through proxy headers.
-
-The reviewed nginx configuration belongs in `nginx/`. Verification should show requests being served by both Backend A and Backend B without presenting fabricated output in this document.
-
-## 9. TLS/HTTPS
-
-HTTPS terminates at nginx on port `8443`, with TLS 1.2 and TLS 1.3 enabled. The checked-in nginx configuration contains placeholder filesystem paths for the certificate and private key; Keshav must replace them locally with the real paths before starting nginx. The service certificate is issued by a local certificate authority and must cover the private service name or names used by clients. Once the public local CA certificate is trusted on a client, normal certificate verification should succeed without bypassing verification.
-
-Only public certificates may be stored in `certificates/`. Private keys—including `team1-ca.key` and `app.team1.test.key`—must remain outside Git and must never be copied into this repository, printed in logs, shared as evidence, or committed.
-
-## 10. Caching
-
-nginx caching is configured only for the exact HTTPS route `/api/status`; the general HTTP and HTTPS locations are proxied without nginx caching. The cache uses `/tmp/team1-nginx-cache`, the shared zone `team1_cache`, a five-minute inactive timeout, and a ten-second validity period for successful responses. For this route, nginx ignores upstream `Cache-Control`, `Expires`, and `Set-Cookie` headers, emits `Cache-Control: public, max-age=10`, and exposes the result in `X-Cache-Status`.
-
-The experiment should demonstrate and capture the progression of cache states:
-
-- `MISS`: no valid cached response was available.
-- `HIT`: nginx served a valid cached response.
-- `EXPIRED`: a cached response had expired and required revalidation or refresh.
-
-Store genuine, sanitized caching evidence in `evidence/caching/`. Record the request sequence and timing necessary to reproduce each state.
-
-## 11. Wireshark Observations
-
-Packet captures should be collected during real tests and saved or documented under the appropriate evidence directory. Expected observations to investigate include:
-
-- DNS queries and responses for `app.team1.test` and `api.team1.test`.
-- The TCP three-way handshake: SYN, SYN-ACK, and ACK.
-- TLS ClientHello and ServerHello messages.
-- Encrypted TLS application data after the handshake.
-
-Captures must be reviewed before submission so that they do not expose credentials, private keys, session secrets, or unrelated personal traffic.
-
-## 12. Failure Testing
-
-Controlled tests should document how the system behaves when a component becomes unavailable. Useful scenarios include stopping one backend, stopping both backends, making the DNS service unavailable, or testing a client that does not trust the local CA.
-
-Record only tests that were actually performed. Place sanitized evidence in `evidence/failures/`, including the test condition, expected behavior, observed behavior, and recovery step. Restore each component after its test.
-
-## 13. How to Run
-
-1. Connect all four laptops to the same LAN and confirm the documented IP addresses are current.
-2. On Shivam's laptop, copy or clone the project, open the `backend-a` directory, and start Backend A:
-
-   ```bash
-   cd backend-a
-   node server.js
-   ```
-
-   The code listens on `0.0.0.0:3001`.
-
-3. On Yash's laptop, copy or clone the project, open the `backend-b` directory, and start Backend B:
-
-   ```bash
-   cd backend-b
-   node server.js
-   ```
-
-   The code listens on `0.0.0.0:3002`.
-
-4. On Shitanshu's laptop, review `dns/dnsmasq.conf` and use the locally appropriate dnsmasq startup procedure. The supplied configuration listens on `127.0.0.1` and `10.7.22.96` at port `53`, maps both private domains to `10.7.15.28`, forwards other queries to `8.8.8.8` and `1.1.1.1`, and enables query logging.
-5. Ensure participating clients are configured to use `10.7.22.96` as their DNS server.
-6. Install and trust only the public local CA certificate on test clients.
-7. On Keshav's laptop, replace the certificate placeholders in `nginx/cn-project.conf` with local paths outside the repository, review the configuration, and use the locally appropriate nginx startup procedure.
-8. Verify DNS, HTTP, HTTPS, load balancing, caching, and controlled failure behavior using the commands below and Wireshark captures.
-
-Do not treat these steps as authorization for automated changes to any laptop's DNS, nginx, certificate trust, network configuration, or running services.
-
-## 14. Verification Commands
-
-Run verification commands from an appropriately configured LAN client. These commands are examples; capture and report only real results.
+On each Mac:
 
 ```bash
-# Confirm private DNS resolution through the primary DNS server.
-dig @10.7.22.96 app.team1.test
-dig @10.7.22.96 api.team1.test
-
-# Verify the HTTP edge endpoint.
-curl -i http://app.team1.test:8080/
-
-# Verify trusted HTTPS with normal certificate verification.
-curl -i https://app.team1.test:8443/
-
-# Repeat uncached HTTP requests to observe backend selection.
-curl -i http://app.team1.test:8080/
-curl -i http://app.team1.test:8080/
-
-# Repeat the exact cache-enabled HTTPS route to observe cache headers.
-curl -i https://app.team1.test:8443/api/status
-curl -i https://app.team1.test:8443/api/status
+git clone --branch codex/phase-2 --single-branch \
+  https://github.com/Silence91169/CN_Private-Service_Project.git
+cd CN_Private-Service_Project
+git status --short --branch
 ```
 
-## 15. Security Notes
+Create a local, ignored inventory:
 
-- Never commit, copy, expose, or print private keys, passwords, credentials, environment secrets, or other sensitive material.
-- `team1-ca.key` and `app.team1.test.key` must never be committed under any circumstances.
-- The `.gitignore` excludes common private-key, certificate-bundle, environment, dependency, and macOS metadata files; it is a safeguard, not a substitute for reviewing staged changes.
-- Keep CA and server private keys outside the repository with restrictive filesystem permissions.
-- Commit only public certificate material that is genuinely required for the submission and approved for distribution.
-- Review `git status` and the staged diff before every commit.
-- Sanitize screenshots, packet captures, and logs before adding them to `evidence/`.
-- Never bypass TLS certificate verification in the trusted-CA demonstration.
-- Use this project only on the authorized private LAN and only against participating systems.
+```bash
+cp config/inventory.example.env config/inventory.env
+nano config/inventory.env
+scripts/render-configs.sh
+```
+
+For the verified lab snapshot, use the four current IPs from the table, ports `3001`, `3002`, `8080`, and `8443`, TTL `30`, the real active backend interfaces, the output of `brew --prefix`, and edge-local certificate/key paths. Review everything under `generated/`; never commit it.
+
+Run non-destructive repository checks:
+
+```bash
+bash scripts/run-static-tests.sh
+```
+
+## Start and check each role
+
+### Shivam — Backend A and secondary DNS
+
+```bash
+scripts/backend/run.sh A
+curl -i http://127.0.0.1:3001/healthz
+dns/scripts/validate.sh "$PWD/generated/dns/secondary/dnsmasq.conf"
+```
+
+Expected backend headers include `X-Backend: A` and `Cache-Control: no-store`.
+
+### Yash — Backend B and standby nginx
+
+```bash
+scripts/backend/run.sh B
+curl -i http://127.0.0.1:3002/healthz
+nginx/scripts/validate.sh "$PWD/generated/nginx/standby.conf"
+```
+
+Expected backend headers include `X-Backend: B` and `Cache-Control: no-store`.
+
+### Keshav — Primary nginx
+
+```bash
+nginx/scripts/validate.sh "$PWD/generated/nginx/primary.conf"
+nginx/scripts/deploy.sh "$PWD/generated/nginx/primary.conf" primary
+```
+
+`deploy.sh` is a dry run unless `--apply` is explicitly supplied. It installs configuration but does not start or reload nginx.
+
+### Shitanshu — Primary DNS and verification
+
+```bash
+dns/scripts/validate.sh "$PWD/generated/dns/primary/dnsmasq.conf"
+scripts/verify/check-dns.sh 10.7.30.125 10.7.2.149
+scripts/verify/check-dns.sh 10.7.6.134 10.7.2.149
+```
+
+The literal IPs above reproduce the verified 24 November lab snapshot. Use the current `config/inventory.env` values in later sessions.
+
+Full installation, supervised state-changing commands, and rollback are in [docs/deployment.md](docs/deployment.md).
+
+## Service verification
+
+### HTTP and HTTPS
+
+```bash
+curl -i http://app.team1.test:8080/healthz
+curl -i https://app.team1.test:8443/healthz
+curl -i https://api.team1.test:8443/api/status
+```
+
+Do not use `curl -k` as trusted-TLS evidence. For an edge-specific check without changing DNS:
+
+```bash
+scripts/verify/check-http.sh EDGE_IP 8443
+scripts/verify/check-tls.sh EDGE_IP 8443
+```
+
+### Round-robin and backend failover
+
+`/healthz` is uncached and identifies the selected backend:
+
+```bash
+scripts/verify/check-failover.sh 10.7.2.149 8443 10
+```
+
+With both backends healthy, samples should contain A and B; strict alternation is not guaranteed. nginx uses passive failure detection (`max_fails=1`, `fail_timeout=10s`) and retries eligible failures. Backend failure/recovery was reported during team testing, but a dedicated committed transcript is still required.
+
+### DNS redundancy
+
+```bash
+scripts/verify/check-dns.sh 10.7.30.125 10.7.2.149
+scripts/verify/check-dns.sh 10.7.6.134 10.7.2.149
+```
+
+The committed final health transcript proves that both resolvers returned `10.7.2.149`. Resolver-outage behavior and manual switchover were reported live; add a dedicated transcript before treating them as committed evidence.
+
+### nginx cache
+
+Caching applies only to the exact HTTPS `/api/status` location:
+
+```bash
+curl -sS -D - -o /dev/null https://app.team1.test:8443/api/status
+curl -sS -D - -o /dev/null https://app.team1.test:8443/api/status
+```
+
+The first request after an empty/expired entry should show `X-Cache-Status: MISS`; an immediate repeat should show `HIT`. Caching was reported during team testing, but the repository still needs a dedicated timestamped MISS/HIT transcript.
+
+### Standby edge and manual migration
+
+Validate the standby directly without changing DNS:
+
+```bash
+scripts/verify/check-http.sh 10.7.18.193 8443
+```
+
+The committed evidence includes standby HTTP `200` with `X-Backend: B`. A migration uses `dns/records/standby-edge.hosts.template` on both DNS servers, waits for TTL/cache convergence, verifies the service, and restores the primary record. This is controlled manual switchover—not automatic failover.
+
+## Troubleshooting and rollback
+
+Diagnose in dependency order:
+
+```bash
+scripts/verify/check-dns.sh RESOLVER_IP EXPECTED_EDGE_IP
+scripts/verify/check-tcp.sh EDGE_IP 8443
+scripts/verify/check-tls.sh EDGE_IP 8443
+scripts/verify/check-http.sh EDGE_IP 8443
+```
+
+Or run the ordered wrapper after restoring the primary edge:
+
+```bash
+scripts/verify/diagnose.sh config/inventory.env
+```
+
+Rollback principles:
+
+- restore primary-edge host records on both resolvers;
+- wait one TTL or flush only the designated client cache with explicit approval;
+- flush only the `team1/backend` PF anchor with `firewall/rollback.sh --apply`;
+- restore the client’s original DNS settings;
+- validate before any service reload.
+
+See [docs/troubleshooting.md](docs/troubleshooting.md) and [docs/deployment.md](docs/deployment.md).
+
+## Verification status
+
+| Feature | Status | Basis |
+| --- | --- | --- |
+| Primary DNS answer | Verified with committed evidence | Both names resolved to primary edge in `live-health-check.txt` |
+| Secondary DNS answer | Verified with committed evidence | Secondary returned primary edge IP |
+| Primary HTTP | Verified with committed evidence | HTTP `200`, `X-Backend: A` |
+| Standby HTTP | Verified with committed evidence | HTTP `200`, `X-Backend: B` |
+| Primary HTTPS | Verified with committed evidence | `HTTPS 200`; detailed certificate transcript still desirable |
+| Reverse proxy | Verified with committed evidence | Edge responses include backend identity |
+| Round-robin A/B | Reported live; evidence incomplete | Team observation, no dedicated committed transcript |
+| Backend failure/recovery | Reported live; evidence incomplete | Dedicated before/failure/recovery transcript required |
+| DNS redundancy/outage test | Reported live; partial committed evidence | Both resolvers proven; outage transcript missing |
+| Manual DNS edge switchover | Reported live; evidence incomplete | Standby accessibility proven; cutover transcript missing |
+| nginx caching | Reported live; evidence incomplete | Dedicated MISS/HIT transcript missing |
+| PF backend isolation | Implemented, not fully validated | Templates/scripts exist; no committed live proof |
+| Layered fault challenge | Implemented, not fully validated | Diagnostic scripts exist; scenarios not evidenced |
+| Wireshark DNS/TCP/TLS captures | Not verified in repository | No reviewed captures committed |
+| Static/local automation | Verified | `scripts/run-static-tests.sh` passes locally |
+
+Committed evidence: [evidence/final-verification/live-health-check.txt](evidence/final-verification/live-health-check.txt). The complete evidence policy and gaps are tracked in [evidence/README.md](evidence/README.md).
+
+## Security considerations
+
+- Never commit CA keys, TLS private keys, passwords, tokens, `.env` files, `config/inventory.env`, or `generated/`.
+- Treat screenshots, logs, and packet captures as potentially sensitive.
+- PF scripts default to dry-run, use a dedicated anchor, and do not enable PF globally.
+- DNS-cache and nginx/PF mutations require explicit `--apply` or manual commands.
+- This repository does not automatically change macOS DNS, certificate trust, interfaces, firewall state, or running services.
+- Review `git status`, staged diffs, and secret scans before every push.
+
+## Known limitations
+
+- IP addresses may change between lab sessions.
+- Edge migration is manual DNS switchover and is subject to TTL/cache convergence.
+- nginx upstream checks are passive rather than active health probes.
+- The active primary nginx remains a single point of service entry until DNS is changed.
+- A second DNS server does not automatically fail over the edge.
+- The committed evidence set is smaller than the set of tests reported by the team.
+
+## Evaluation guides
+
+- [Architecture](docs/architecture.md)
+- [Deployment and rollback](docs/deployment.md)
+- [Five-minute viva demonstration](docs/demo-script.md)
+- [Technical report](docs/technical-report.md)
+- [Troubleshooting runbook](docs/troubleshooting.md)
+- [Viva questions](docs/viva-questions.md)
+- [Screenshot checklist](docs/screenshot-checklist.md)

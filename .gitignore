@@ -3,5 +3,12 @@
 *.p12
 *.pfx
 .env*
+!*.example.env
 node_modules/
 .DS_Store
+generated/
+*.runtime.conf
+*.runtime.hosts
+evidence/**/*.pcap
+evidence/**/*.pcapng
+evidence/**/raw/
