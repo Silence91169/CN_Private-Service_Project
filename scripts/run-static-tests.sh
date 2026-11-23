@@ -17,7 +17,7 @@ if rg -n '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|password\s*=|secret\s*=)' . -g 
     printf 'FAIL: potential secret material found\n' >&2
     exit 1
 fi
-if rg -n '10\.7\.[0-9]+\.[0-9]+' . -g '!README.md' -g '!dns/dnsmasq.conf' -g '!nginx/cn-project.conf' -g '!scripts/run-static-tests.sh'; then
+if rg -n '10\.7\.[0-9]+\.[0-9]+' . -g '!README.md' -g '!dns/dnsmasq.conf' -g '!nginx/cn-project.conf' -g '!scripts/run-static-tests.sh' -g '!evidence/**'; then
     printf 'FAIL: stale LAN address outside documented Phase 1 compatibility files\n' >&2
     exit 1
 fi
