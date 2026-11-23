@@ -1,4 +1,6 @@
-# CN Private Service Project — Phase 1: Build & Observe
+# CN Private Service Project — Phase 1 + Phase 2
+
+> **Verification status (24 November 2026):** Phase 2 repository implementation is complete but has not yet been deployed or tested across the four-Mac LAN. Static and local results must not be represented as live-network proof. The `10.7.x.x` addresses below are historical Phase 1 values; Phase 2 uses an ignored `config/inventory.env` rendered from `config/inventory.example.env`.
 
 ## 1. Overview
 
@@ -197,3 +199,31 @@ curl -i https://app.team1.test:8443/api/status
 - Sanitize screenshots, packet captures, and logs before adding them to `evidence/`.
 - Never bypass TLS certificate verification in the trusted-CA demonstration.
 - Use this project only on the authorized private LAN and only against participating systems.
+
+## 16. Phase 2 implementation
+
+Phase 2 adds primary/secondary DNS templates, controlled 30-second TTL records, an uncached health endpoint and failover sampler, scoped PF anchor rules, equivalent primary/standby edge templates, layered diagnostics, evidence guidance, rollback procedures, and report/demo/viva material.
+
+Start with:
+
+```bash
+cp config/inventory.example.env config/inventory.env
+# Edit only config/inventory.env with the current lab-session values.
+scripts/render-configs.sh
+scripts/run-static-tests.sh
+```
+
+Generated configurations and the local inventory are ignored. Read `docs/deployment.md` before using any generated file. Scripts that can change DNS cache, nginx installation, or PF state are dry-run by default and require an explicit `--apply`; no script changes macOS network-service DNS settings.
+
+## 17. Phase 2 verification state
+
+| Extension | Repository implementation | Four-Mac live test |
+| --- | --- | --- |
+| A — Backup DNS | Implemented | Pending |
+| B — DNS TTL migration | Implemented | Pending |
+| D — Backend failover | Implemented | Pending |
+| C — PF isolation | Implemented | Pending |
+| E — Standby edge migration | Implemented | Pending |
+| F — Layered troubleshooting | Implemented | Pending |
+
+Only update the live-test column after attaching genuine, reviewed evidence to `evidence/`.
