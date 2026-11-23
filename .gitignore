@@ -12,3 +12,4 @@ generated/
 evidence/**/*.pcap
 evidence/**/*.pcapng
 evidence/**/raw/
+evidence/live-demo/session-*/

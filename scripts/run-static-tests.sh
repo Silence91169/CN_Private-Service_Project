@@ -6,12 +6,20 @@ printf '[JavaScript syntax]\n'
 node --check backend-a/server.js
 node --check backend-b/server.js
 printf '[Shell syntax]\n'
-find scripts dns nginx firewall -type f -name '*.sh' -print | while IFS= read -r file; do sh -n "$file"; done
+find scripts dns nginx firewall -type f -name '*.sh' -print | while IFS= read -r file; do
+    if head -n 1 "$file" | grep -q 'bash'; then
+        bash -n "$file"
+    else
+        sh -n "$file"
+    fi
+done
 printf '[Templates]\n'
 scripts/validate-templates.sh
 scripts/tests/test-rendering.sh
 printf '[Backend unit tests]\n'
 scripts/tests/test-backends.sh
+printf '[Demo launcher tests]\n'
+scripts/tests/test-demo.sh
 printf '[Secrets and stale addresses]\n'
 if rg -n '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|password\s*=|secret\s*=)' . -g '!README.md' -g '!docs/**' -g '!scripts/run-static-tests.sh'; then
     printf 'FAIL: potential secret material found\n' >&2

@@ -110,6 +110,55 @@ Run non-destructive repository checks:
 bash scripts/run-static-tests.sh
 ```
 
+## One-command live demonstration
+
+Start the interactive, non-destructive viva launcher from the repository root:
+
+```bash
+bash scripts/demo.sh
+```
+
+The menu verifies both DNS servers, samples uncached `/healthz` for backend selection, verifies trusted TLS/HTTPS, demonstrates the `/api/status` cache, checks the standby edge, checks all four machines, runs local/static tests, or performs the complete safe sequence.
+
+For a single non-interactive section:
+
+```bash
+bash scripts/demo.sh --run 1       # both DNS servers
+bash scripts/demo.sh --run 8       # complete non-destructive demo
+bash scripts/demo.sh --run 9       # GitHub/project information
+```
+
+To capture genuine output for later review:
+
+```bash
+bash scripts/demo.sh --capture
+```
+
+This creates an ignored `evidence/live-demo/session-TIMESTAMP/demo.log`. It does not commit evidence. Review the file for sensitive or unrelated information before explicitly adding it.
+
+The launcher reads `config/inventory.env` when present. Explicit `DEMO_*` variables can override individual values. Without a complete inventory it refuses to start network tests and reports the missing values; it never silently uses an old address. If college Wi-Fi assigns new addresses, update the ignored inventory and rerun:
+
+```bash
+ipconfig getifaddr en0
+ipconfig getifaddr en1
+nano config/inventory.env
+scripts/render-configs.sh
+bash scripts/demo.sh --run 6
+```
+
+Do not edit reusable templates merely because DHCP changed a session IP.
+
+Each teammate can run a read-only role check:
+
+```bash
+bash scripts/demo-preflight.sh shitanshu
+bash scripts/demo-preflight.sh keshav
+bash scripts/demo-preflight.sh shivam
+bash scripts/demo-preflight.sh yash
+```
+
+If the live LAN fails during evaluation, show the preserved [final health transcript](evidence/final-verification/live-health-check.txt), explain its scope honestly, and use the README architecture plus Git history. Do not convert old evidence into a claim that the current network passed.
+
 ## Start and check each role
 
 ### Shivam — Backend A and secondary DNS
