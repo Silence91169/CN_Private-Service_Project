@@ -317,7 +317,7 @@ Committed evidence: [evidence/final-verification/live-health-check.txt](evidence
 - This repository does not automatically change macOS DNS, certificate trust, interfaces, firewall state, or running services.
 - Review `git status`, staged diffs, and secret scans before every push.
 
-## Known limitations
+## Known limitation
 
 - IP addresses may change between lab sessions.
 - Edge migration is manual DNS switchover and is subject to TTL/cache convergence.
